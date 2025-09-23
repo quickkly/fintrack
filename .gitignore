@@ -1,0 +1,46 @@
+# Build artifacts
+/fintrack
+/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary
+fintrack
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Environment variables and secrets
+.env
+*.env
+
+# Configuration files with secrets
+config.yaml
+session.json
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Coverage reports
+*.out
+coverage.html
+*.har
+staging/

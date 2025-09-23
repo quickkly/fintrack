@@ -1,0 +1,17 @@
+# FinTrack Configuration
+# Configuration file for FinTrack CLI tool
+
+bend:
+  # Bend financial service settings
+  base_url: "https://bend.example.com"
+  rate_limit: "1s"
+  session_file: "~/.config/fintrack/session.json"
+  timeout: "30s"
+  
+  # Authentication (set via 'fintrack bend login' or 'fintrack config set')
+  # refresh_token: "your-initial-refresh-token-here"
+  
+  # Device identification (auto-generated if not provided)
+  # device_hash: ""
+  device_type: "Web"
+  device_location: "Default"
