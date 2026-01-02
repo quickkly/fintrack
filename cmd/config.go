@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"fintrack/internal/config"
+	"github.com/quickkly/fintrack/internal/config"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

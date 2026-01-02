@@ -1,4 +1,4 @@
-module fintrack
+module github.com/quickkly/fintrack
 
 go 1.22.6
 

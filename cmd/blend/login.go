@@ -3,8 +3,8 @@ package blend
 import (
 	"fmt"
 
-	"fintrack/internal/blend"
-	"fintrack/internal/config"
+	"github.com/quickkly/fintrack/internal/blend"
+	"github.com/quickkly/fintrack/internal/config"
 
 	"github.com/spf13/cobra"
 )

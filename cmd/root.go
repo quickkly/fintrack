@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"fintrack/internal/config"
+	"github.com/quickkly/fintrack/internal/config"
 
 	"github.com/spf13/cobra"
 )

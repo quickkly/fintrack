@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fintrack/cmd"
+	"github.com/quickkly/fintrack/cmd"
 )
 
 func main() {

@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"fintrack/cmd/blend"
+	"github.com/quickkly/fintrack/cmd/blend"
 
 	"github.com/spf13/cobra"
 )

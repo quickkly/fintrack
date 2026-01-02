@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"fintrack/internal/config"
+	"github.com/quickkly/fintrack/internal/config"
 
 	"github.com/andybalholm/brotli"
 )
