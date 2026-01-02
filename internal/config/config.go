@@ -73,8 +73,14 @@ func Load(configFile string) (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	// Expand file paths
-	if err := expandPaths(&config); err != nil {
+	// Get the directory of the config file used
+	configFileDir := ""
+	if usedConfig := v.ConfigFileUsed(); usedConfig != "" {
+		configFileDir = filepath.Dir(usedConfig)
+	}
+
+	// Expand file paths relative to config file location
+	if err := expandPaths(&config, configFileDir); err != nil {
 		return nil, fmt.Errorf("failed to expand paths: %w", err)
 	}
 
@@ -107,19 +113,22 @@ func getConfigDir() (string, error) {
 }
 
 // expandPaths expands ~ and environment variables in file paths
-func expandPaths(config *Config) error {
+func expandPaths(config *Config, configFileDir string) error {
 	var err error
 
-	config.Bend.SessionFile, err = expandPath(config.Bend.SessionFile)
+	config.Bend.SessionFile, err = expandPath(config.Bend.SessionFile, configFileDir)
 	if err != nil {
 		return err
 	}
+
+	fmt.Printf("[config] session_file resolved to: %s\n", config.Bend.SessionFile)
 
 	return nil
 }
 
 // expandPath expands ~ and environment variables in a file path
-func expandPath(path string) (string, error) {
+// Relative paths are resolved against the config file directory
+func expandPath(path string, configFileDir string) (string, error) {
 	if path == "" {
 		return path, nil
 	}
@@ -128,12 +137,17 @@ func expandPath(path string) (string, error) {
 	path = os.ExpandEnv(path)
 
 	// Expand ~ to home directory
-	if path[0] == '~' {
+	if len(path) > 0 && path[0] == '~' {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
 			return "", err
 		}
 		path = filepath.Join(homeDir, path[1:])
+	}
+
+	// If path is relative, resolve against config file directory
+	if !filepath.IsAbs(path) && configFileDir != "" {
+		path = filepath.Join(configFileDir, path)
 	}
 
 	return path, nil
