@@ -42,8 +42,15 @@ func runCheck(cmd *cobra.Command) error {
 
 	if !sessionInfo.Exists {
 		fmt.Println("❌ No session file found")
-		fmt.Println("Run 'fintrack bend login' to authenticate")
-		return nil
+		fmt.Println("🔄 Attempting to authenticate using configuration...")
+		if err := authenticateFromConfig(cfg, sessionManager); err != nil {
+			return err
+		}
+		// Reload session info
+		sessionInfo, err = sessionManager.GetSessionInfo()
+		if err != nil {
+			return fmt.Errorf("failed to get session info after auth: %w", err)
+		}
 	}
 
 	fmt.Printf("📁 Session file: %s\n", cfg.Bend.SessionFile)
@@ -52,10 +59,22 @@ func runCheck(cmd *cobra.Command) error {
 		fmt.Println("❌ Session expired or invalid")
 		if sessionInfo.HasRefreshToken {
 			fmt.Println("💡 Trying to refresh session...")
-			return refreshSession(cfg, sessionManager)
+			if err := refreshSession(cfg, sessionManager); err != nil {
+				fmt.Println("⚠️ Refresh failed, attempting fallback to config...")
+				if err := authenticateFromConfig(cfg, sessionManager); err != nil {
+					return err
+				}
+			}
 		} else {
-			fmt.Println("Run 'fintrack bend login' to re-authenticate")
-			return nil
+			fmt.Println("🔄 Attempting to authenticate using configuration...")
+			if err := authenticateFromConfig(cfg, sessionManager); err != nil {
+				return err
+			}
+		}
+		// Reload session info
+		sessionInfo, err = sessionManager.GetSessionInfo()
+		if err != nil {
+			return fmt.Errorf("failed to get session info after auth: %w", err)
 		}
 	}
 
@@ -83,9 +102,15 @@ func runCheck(cmd *cobra.Command) error {
 		fmt.Printf("❌ API test failed: %v\n", err)
 		if sessionInfo.HasRefreshToken {
 			fmt.Println("💡 Trying to refresh session...")
-			return refreshSession(cfg, sessionManager)
+			if err := refreshSession(cfg, sessionManager); err != nil {
+				fmt.Println("⚠️ Refresh failed, attempting fallback to config...")
+				return authenticateFromConfig(cfg, sessionManager)
+			}
+			return nil
 		}
-		return fmt.Errorf("API connection failed")
+		
+		fmt.Println("🔄 Attempting to authenticate using configuration...")
+		return authenticateFromConfig(cfg, sessionManager)
 	}
 
 	fmt.Println("✅ API connection successful")
@@ -152,5 +177,33 @@ func refreshSession(cfg *config.Config, sessionManager *blend.SessionManager) er
 	}
 
 	fmt.Printf("👤 User: %s (%s)\n", userInfo.GetFullName(), userInfo.Email)
+	return nil
+}
+
+func authenticateFromConfig(cfg *config.Config, sessionManager *blend.SessionManager) error {
+	if cfg.Bend.RefreshToken == "" {
+		return fmt.Errorf("no refresh token in configuration, cannot authenticate")
+	}
+
+	client := blend.NewClient(cfg)
+	fmt.Println("🔄 Initializing session from configuration refresh token...")
+
+	if err := client.InitializeFromRefreshToken(cfg.Bend.RefreshToken); err != nil {
+		return fmt.Errorf("failed to initialize from config token: %w", err)
+	}
+
+	if err := sessionManager.SaveSession(client.GetSession()); err != nil {
+		return fmt.Errorf("failed to save new session: %w", err)
+	}
+
+	fmt.Println("✅ Authenticated successfully from configuration")
+
+	// Test the new session
+	userInfo, err := client.CheckSession()
+	if err != nil {
+		return fmt.Errorf("new session test failed: %w", err)
+	}
+	fmt.Printf("👤 User: %s (%s)\n", userInfo.GetFullName(), userInfo.Email)
+
 	return nil
 }

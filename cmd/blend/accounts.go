@@ -51,22 +51,7 @@ func runAccounts(cmd *cobra.Command, args []string) error {
 
 	// Check session validity
 	if !sessionInfo.Valid {
-		if sessionInfo.HasRefreshToken {
-			fmt.Println("⚠️  Session expired, attempting to refresh...")
-			// Create client to refresh session
-			client := blend.NewClient(cfg)
-			client.SetSession(session)
-			if err := client.RefreshSession(); err != nil {
-				return fmt.Errorf("session expired. Run 'fintrack bend check' to refresh or 'fintrack bend login' to re-authenticate")
-			}
-			// Save refreshed session
-			if err := sessionManager.SaveSession(client.GetSession()); err != nil {
-				return fmt.Errorf("failed to save refreshed session: %w", err)
-			}
-			session = client.GetSession()
-		} else {
-			return fmt.Errorf("session expired. Run 'fintrack bend check' to refresh or 'fintrack bend login' to re-authenticate")
-		}
+		return fmt.Errorf("session expired. Run 'fintrack bend check' to refresh or 'fintrack bend login' to re-authenticate")
 	}
 
 	fmt.Println("🔄 Fetching accounts...")

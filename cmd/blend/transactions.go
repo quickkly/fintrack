@@ -152,18 +152,10 @@ func setupClientAndSession(cfg *config.Config) (*blend.Client, *blend.Session, e
 	}
 
 	if !sessionInfo.Valid {
-		fmt.Println("Session expired, attempting to refresh...")
-		client.SetSession(session)
-		if err := client.RefreshSession(); err != nil {
-			return nil, nil, fmt.Errorf("session refresh failed. Run 'fintrack bend login' to re-authenticate: %w", err)
-		}
-		if err := sessionManager.SaveSession(client.GetSession()); err != nil {
-			return nil, nil, fmt.Errorf("failed to save refreshed session: %w", err)
-		}
-		fmt.Println("✅ Session refreshed")
-	} else {
-		client.SetSession(session)
+		return nil, nil, fmt.Errorf("session expired. Run 'fintrack bend check' to refresh or 'fintrack bend login' to re-authenticate")
 	}
+
+	client.SetSession(session)
 
 	return client, session, nil
 }
