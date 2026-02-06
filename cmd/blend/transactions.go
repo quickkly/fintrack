@@ -32,6 +32,11 @@ Advanced filtering (matching curl parameters):
 - OR logic for category/subcategory combinations
 - Aggregated totals and counts
 
+Pagination:
+By default, this command fetches the first page of results (up to 50 transactions).
+Use --fetch-all to automatically fetch all pages of transactions matching your filters.
+This is useful when you have many transactions and want to retrieve the complete dataset.
+
 Data is saved to the staging directory for further processing.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runTransactions(cmd)
@@ -58,6 +63,9 @@ var (
 
 	// Debug options
 	enableLogging bool
+
+	// Pagination options
+	fetchAll bool
 )
 
 func init() {
@@ -82,6 +90,18 @@ func init() {
 
 	// Debug options
 	TransactionsCmd.Flags().BoolVar(&enableLogging, "log-http", false, "Enable HTTP request/response logging")
+
+	// Pagination options
+	TransactionsCmd.Flags().BoolVar(&fetchAll, "fetch-all", false, `Automatically fetch all pages of transactions using pagination.
+By default, only the first page (up to 50 transactions) is fetched.
+When enabled, this flag will:
+- Loop through all available pages using the API's pagination cursor
+- Display progress for each page fetched
+- Combine all transactions into a single output file
+- Show the total count across all pages
+
+Use this when you need the complete dataset matching your filters, especially
+for large date ranges or when you expect more than 50 transactions.`)
 }
 
 func runTransactions(cmd *cobra.Command) error {
@@ -128,10 +148,10 @@ func runTransactions(cmd *cobra.Command) error {
 		sortBy, sortOrder, includeDetailed, orCategory)
 
 	if hasAdvancedOptions {
-		return handleAdvancedTransactions(client, userID, filters, stagingDir, from, to)
+		return handleAdvancedTransactions(client, userID, filters, stagingDir, from, to, fetchAll)
 	}
 
-	return handleBasicTransactions(client, userID, filters, stagingDir, from, to)
+	return handleBasicTransactions(client, userID, filters, stagingDir, from, to, fetchAll)
 }
 
 // setupClientAndSession initializes the client and validates the session
@@ -258,11 +278,46 @@ func hasAdvancedFilteringOptions(timeFilter, accountID, categoryID, subcategoryI
 
 // handleAdvancedTransactions processes transactions with advanced filtering
 func handleAdvancedTransactions(client *blend.Client, userID string, filters blend.TransactionFilters,
-	stagingDir string, from, to time.Time) error {
+	stagingDir string, from, to time.Time, fetchAll bool) error {
 
 	// Log advanced filtering options
 	logAdvancedFilteringOptions(filters)
 
+	if fetchAll {
+		fmt.Println("🔄 Fetching all pages of transactions...")
+		allTransactions, allCounts, totalInAPI, err := fetchAllTransactionsWithFilters(client, userID, filters)
+		if err != nil {
+			return fmt.Errorf("failed to fetch all transactions: %w", err)
+		}
+
+		if len(allTransactions) == 0 {
+			fmt.Println("📭 No transactions found")
+			return nil
+		}
+
+		// Display summary
+		fmt.Printf("📊 Fetched %d transactions across all pages (Total in API: %d)\n", len(allTransactions), totalInAPI)
+
+		// Generate filename and save
+		filename := generateAdvancedFilename(filters)
+		filepath := filepath.Join(stagingDir, filename)
+
+		if err := saveTransactionsV3(filepath, allTransactions, allCounts, from, to); err != nil {
+			return fmt.Errorf("failed to save transactions: %w", err)
+		}
+
+		fmt.Printf("✅ Saved %d transactions to %s\n", len(allTransactions), filename)
+
+		// Display counts if available
+		if len(allCounts) > 0 {
+			displayTransactionCounts(allCounts)
+		}
+
+		fmt.Printf("📁 Staging directory: %s\n", stagingDir)
+		return nil
+	}
+
+	// Single page fetch (original behavior)
 	data, err := client.FetchTransactionsWithFilters(userID, filters)
 	if err != nil {
 		return fmt.Errorf("failed to fetch transactions with filters: %w", err)
@@ -297,12 +352,41 @@ func handleAdvancedTransactions(client *blend.Client, userID string, filters ble
 
 // handleBasicTransactions processes transactions with basic filtering
 func handleBasicTransactions(client *blend.Client, userID string, filters blend.TransactionFilters,
-	stagingDir string, from, to time.Time) error {
+	stagingDir string, from, to time.Time, fetchAll bool) error {
 
 	// Use the standard v3 transactions API with pagination
 	// If account filtering is specified, use API filtering instead of local filtering
 	if filters.AccountID != "" {
 		fmt.Printf("🏦 Account filter: %s\n", filters.AccountID)
+
+		if fetchAll {
+			fmt.Println("🔄 Fetching all pages of transactions...")
+			allTransactions, allCounts, totalInAPI, err := fetchAllTransactionsWithFilters(client, userID, filters)
+			if err != nil {
+				return fmt.Errorf("failed to fetch all transactions with account filter: %w", err)
+			}
+
+			if len(allTransactions) == 0 {
+				fmt.Println("📭 No transactions found")
+				return nil
+			}
+
+			fmt.Printf("📊 Fetched %d transactions across all pages (Total in API: %d)\n", len(allTransactions), totalInAPI)
+
+			filename := fmt.Sprintf("transactions_%s_to_%s_account_%s.json",
+				from.Format("2006-01-02"), to.Format("2006-01-02"), filters.AccountID)
+			filepath := filepath.Join(stagingDir, filename)
+
+			if err := saveTransactionsV3(filepath, allTransactions, allCounts, from, to); err != nil {
+				return fmt.Errorf("failed to save transactions: %w", err)
+			}
+
+			fmt.Printf("✅ Saved %d transactions to %s\n", len(allTransactions), filename)
+			fmt.Printf("📁 Staging directory: %s\n", stagingDir)
+			return nil
+		}
+
+		// Single page fetch (original behavior)
 		data, err := client.FetchTransactionsWithFilters(userID, filters)
 		if err != nil {
 			return fmt.Errorf("failed to fetch transactions with account filter: %w", err)
@@ -329,6 +413,34 @@ func handleBasicTransactions(client *blend.Client, userID string, filters blend.
 	}
 
 	// Basic fetching without account filtering
+	if fetchAll {
+		fmt.Println("🔄 Fetching all pages of transactions...")
+		allTransactions, allCounts, totalInAPI, err := fetchAllTransactionsBasic(client, userID, filters.Limit)
+		if err != nil {
+			return fmt.Errorf("failed to fetch all transactions: %w", err)
+		}
+
+		if len(allTransactions) == 0 {
+			fmt.Println("📭 No transactions found")
+			return nil
+		}
+
+		fmt.Printf("📊 Fetched %d transactions across all pages (Total in API: %d)\n", len(allTransactions), totalInAPI)
+
+		filename := fmt.Sprintf("transactions_%s_to_%s.json",
+			from.Format("2006-01-02"), to.Format("2006-01-02"))
+		filepath := filepath.Join(stagingDir, filename)
+
+		if err := saveTransactionsV3(filepath, allTransactions, allCounts, from, to); err != nil {
+			return fmt.Errorf("failed to save transactions: %w", err)
+		}
+
+		fmt.Printf("✅ Saved %d transactions to %s\n", len(allTransactions), filename)
+		fmt.Printf("📁 Staging directory: %s\n", stagingDir)
+		return nil
+	}
+
+	// Single page fetch (original behavior)
 	data, err := client.FetchTransactions(userID, 50, "")
 	if err != nil {
 		return fmt.Errorf("failed to fetch transactions: %w", err)
@@ -431,6 +543,85 @@ type TransactionFileV3 struct {
 type DateRange struct {
 	From time.Time `json:"from"`
 	To   time.Time `json:"to"`
+}
+
+// fetchAllTransactionsWithFilters fetches all pages of transactions with filters
+func fetchAllTransactionsWithFilters(client *blend.Client, userID string, filters blend.TransactionFilters) ([]blend.Transaction, []blend.TransactionCount, int, error) {
+	var allTransactions []blend.Transaction
+	var allCounts []blend.TransactionCount
+	after := ""
+	pageNum := 1
+	totalInAPI := 0
+
+	for {
+		filters.After = after
+		data, err := client.FetchTransactionsWithFilters(userID, filters)
+		if err != nil {
+			return nil, nil, 0, fmt.Errorf("failed to fetch page %d: %w", pageNum, err)
+		}
+
+		allTransactions = append(allTransactions, data.Transactions...)
+		if len(data.Counts) > 0 {
+			allCounts = append(allCounts, data.Counts...)
+		}
+
+		// Store total from first page (should be consistent across pages)
+		if pageNum == 1 {
+			totalInAPI = data.Total
+		}
+
+		fmt.Printf("  📄 Fetched page %d: %d transactions\n", pageNum, len(data.Transactions))
+
+		// Check if there are more pages
+		if data.After == "" || len(data.Transactions) < filters.Limit {
+			break
+		}
+		after = data.After
+		pageNum++
+	}
+
+	return allTransactions, allCounts, totalInAPI, nil
+}
+
+// fetchAllTransactionsBasic fetches all pages of transactions without filters
+func fetchAllTransactionsBasic(client *blend.Client, userID string, limit int) ([]blend.Transaction, []blend.TransactionCount, int, error) {
+	var allTransactions []blend.Transaction
+	var allCounts []blend.TransactionCount
+	after := ""
+	pageNum := 1
+	totalInAPI := 0
+
+	if limit == 0 {
+		limit = 50 // Default limit
+	}
+
+	for {
+		data, err := client.FetchTransactions(userID, limit, after)
+		if err != nil {
+			return nil, nil, 0, fmt.Errorf("failed to fetch page %d: %w", pageNum, err)
+		}
+
+		allTransactions = append(allTransactions, data.Transactions...)
+		if len(data.Counts) > 0 {
+			allCounts = append(allCounts, data.Counts...)
+		}
+
+		// Store total from first page (should be consistent across pages)
+		if pageNum == 1 {
+			totalInAPI = data.Total
+		}
+
+		fmt.Printf("  📄 Fetched page %d: %d transactions\n", pageNum, len(data.Transactions))
+
+		// Check if there are more pages
+		if data.After == "" || len(data.Transactions) < limit {
+			break
+		}
+		after = data.After
+		pageNum++
+	}
+
+	return allTransactions, allCounts, totalInAPI, nil
 }
 
 func saveTransactionsV3(filepath string, transactions []blend.Transaction, counts []blend.TransactionCount, from, to time.Time) error {
