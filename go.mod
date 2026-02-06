@@ -1,12 +1,11 @@
 module github.com/quickkly/fintrack
 
-go 1.22.6
+go 1.22
 
 require (
 	github.com/andybalholm/brotli v1.2.0
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.18.2
-	golang.org/x/term v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
