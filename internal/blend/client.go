@@ -59,6 +59,16 @@ func (c *Client) GetSession() *Session {
 	return c.session
 }
 
+// GetDeviceHash returns the current device hash
+func (c *Client) GetDeviceHash() string {
+	return c.deviceHash
+}
+
+// SetDeviceHash sets the device hash (for OTP flow)
+func (c *Client) SetDeviceHash(deviceHash string) {
+	c.deviceHash = deviceHash
+}
+
 // CheckSession validates the current session
 func (c *Client) CheckSession() (*UserInfo, error) {
 	if c.session == nil {
@@ -360,6 +370,133 @@ func (c *Client) InitializeFromRefreshToken(refreshToken string) error {
 	return c.RefreshSession()
 }
 
+// RequestOTP requests an OTP to be sent to the given phone number
+func (c *Client) RequestOTP(phone, channel string, requestID string) error {
+	// Wait for rate limiter
+	<-c.rateLimiter.C
+
+	otpReq := OTPRequest{
+		Phone:   phone,
+		Channel: channel,
+	}
+
+	req, err := c.newRequestWithID("POST", "/api/v1/auth/otp", otpReq, requestID)
+	if err != nil {
+		return fmt.Errorf("failed to create OTP request: %w", err)
+	}
+
+	var response APIResponse
+	if err := c.doRequest(req, &response); err != nil {
+		return fmt.Errorf("failed to request OTP: %w", err)
+	}
+
+	if response.Error != nil {
+		return fmt.Errorf("OTP request failed: %v", response.Error)
+	}
+
+	return nil
+}
+
+// VerifyOTP verifies the OTP and returns tokens and cookie
+func (c *Client) VerifyOTP(phone, otp, requestID string) (*OTPVerifyData, string, error) {
+	// Wait for rate limiter
+	<-c.rateLimiter.C
+
+	verifyReq := OTPVerifyRequest{
+		Phone: phone,
+		OTP:   otp,
+	}
+
+	req, err := c.newRequestWithID("POST", "/api/v1/auth/otp/verify", verifyReq, requestID)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create OTP verify request: %w", err)
+	}
+
+	// Make the request manually to extract cookies
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("HTTP request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := c.readResponseBody(resp)
+	if err != nil {
+		return nil, "", err
+	}
+
+	// Log response if enabled
+	if c.enableLogging {
+		c.logResponse(resp, body)
+	}
+
+	// Handle error responses
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, "", c.handleErrorResponse(resp, body)
+	}
+
+	// Decode response
+	var response OTPVerifyResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, "", fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if response.Error != nil {
+		return nil, "", fmt.Errorf("OTP verification failed: %v", response.Error)
+	}
+
+	// Extract marble-cookie from response cookies
+	marbleCookie := ""
+	for _, cookie := range resp.Cookies() {
+		if cookie.Name == "marble-cookie" {
+			marbleCookie = cookie.Value
+			break
+		}
+	}
+
+	return &response.Data, marbleCookie, nil
+}
+
+// newRequestWithID creates a new HTTP request with a specific request ID (for OTP flow)
+func (c *Client) newRequestWithID(method, endpoint string, body interface{}, requestID string) (*http.Request, error) {
+	url := c.baseURL + endpoint
+
+	var reqBody io.Reader
+	var bodyBytes []byte
+	if body != nil {
+		jsonData, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		bodyBytes = jsonData
+		reqBody = bytes.NewBuffer(jsonData)
+	}
+
+	req, err := http.NewRequest(method, url, reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set OTP-specific headers (matching curl command)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept-Charset", "UTF-8")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "ktor-client")
+	req.Header.Set("X-App-Version", "v1.9.22")
+
+	// Set device headers with specific request ID
+	c.setDeviceHeadersWithRequestID(req, requestID)
+
+	// Don't set authentication headers for OTP requests (no session yet)
+
+	// Log request if enabled
+	if c.enableLogging {
+		c.logRequest(req, bodyBytes)
+	}
+
+	return req, nil
+}
+
 // SetLogging enables or disables HTTP request/response logging
 func (c *Client) SetLogging(enabled bool) {
 	c.enableLogging = enabled
@@ -463,12 +600,21 @@ func (c *Client) setStandardHeaders(req *http.Request) {
 
 // setDeviceHeaders sets device-specific headers required by Bend
 func (c *Client) setDeviceHeaders(req *http.Request) {
+	c.setDeviceHeadersWithRequestID(req, "")
+}
+
+// setDeviceHeadersWithRequestID sets device-specific headers with optional request ID
+func (c *Client) setDeviceHeadersWithRequestID(req *http.Request, requestID string) {
 	req.Header.Set("X-Device-Hash", c.deviceHash)
 	req.Header.Set("X-Device-Type", c.deviceType)
 	req.Header.Set("X-Device-Location", c.deviceLocation)
+	// Set device name for OTP flow (matching curl command)
+	req.Header.Set("X-Device-Name", "sdk_gphone64_arm64")
 
-	// Generate a unique request ID for tracking
-	requestID := generateRequestID()
+	// Use provided request ID or generate a unique one
+	if requestID == "" {
+		requestID = generateRequestID()
+	}
 	req.Header.Set("X-Request-ID", requestID)
 }
 

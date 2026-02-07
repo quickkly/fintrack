@@ -243,6 +243,40 @@ type RefreshResponse struct {
 }
 
 // =============================================================================
+// OTP AUTHENTICATION MODELS
+// =============================================================================
+
+// OTPRequest represents OTP generation request
+type OTPRequest struct {
+	Phone   string `json:"phone"`
+	Channel string `json:"channel"` // "sms" or "whatsapp"
+}
+
+// OTPVerifyRequest represents OTP verification request
+type OTPVerifyRequest struct {
+	Phone string `json:"phone"`
+	OTP   string `json:"otp"`
+}
+
+// OTPVerifyResponse represents OTP verification response
+type OTPVerifyResponse struct {
+	Meta  APIResponseMeta `json:"meta"`
+	Data  OTPVerifyData   `json:"data"`
+	Error interface{}     `json:"error"`
+}
+
+// OTPVerifyData represents the data section of OTP verification response
+type OTPVerifyData struct {
+	TokenType    string    `json:"token_type"`
+	AccessToken  string    `json:"access_token"`
+	RefreshToken string    `json:"refresh_token"`
+	ExpiresAt    string    `json:"expires_at"`
+	NewUser      bool      `json:"new_user"`
+	UserID       string    `json:"user_id"`
+	UserMeta     UserInfo  `json:"user_meta"`
+}
+
+// =============================================================================
 // TRANSACTION API RESPONSE MODELS
 // =============================================================================
 
